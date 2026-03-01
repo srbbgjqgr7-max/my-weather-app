@@ -1,7 +1,7 @@
-import numpy as np
 import streamlit as st
 import pandas as pd
 import requests
+import numpy as np 
 from meteostat import Stations
 from datetime import datetime
 
