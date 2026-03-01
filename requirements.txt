@@ -2,4 +2,4 @@ streamlit
 pandas
 requests
 meteostat==1.6.3
-numpy
+numpy<2.0.0
