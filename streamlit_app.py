@@ -7,13 +7,13 @@ from datetime import datetime
 # 1. Page Configuration
 st.set_page_config(page_title="High-Res Weather Ensemble", page_icon="🎯")
 st.title("🎯 High-Accuracy Weather Ensemble")
-st.markdown("Prioritizing high-resolution regional models for the next 48 hours.")
+st.markdown("Fetching hourly data for maximum accuracy in the next 48 hours.")
 
 # 2. Sidebar Settings
 with st.sidebar:
     st.header("Settings")
     unit = st.radio("Temperature Unit", ["Celsius (°C)", "Fahrenheit (°F)"])
-    st.info("Rain Risk is the % of models predicting >0.1mm of precip.")
+    st.info("Rain Risk is the % of models predicting >0.1mm of precip today.")
 
 # 3. User Inputs
 location_input = st.text_input("Enter Station or City (e.g., KLGA, London, Tokyo)", "KLGA")
@@ -21,7 +21,7 @@ target_date = st.date_input("Select Forecast Date", datetime.now())
 
 if st.button("Scan Models"):
     try:
-        # 4. Geocoding (Convert name to Lat/Lon)
+        # 4. Geocoding
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location_input}&count=1&language=en&format=json"
         geo_res = requests.get(geo_url).json()
 
@@ -30,22 +30,22 @@ if st.button("Scan Models"):
         else:
             location_data = geo_res['results'][0]
             lat, lon = location_data['latitude'], location_data['longitude']
-            st.success(f"Scanning High-Res Models for: {location_data['name']}")
+            st.success(f"Scanning Hourly Data for: {location_data['name']}")
 
-            # 5. Fetch High-Res Forecast Models
-            # 'best_match' uses HRRR, ICON-D2, AROME, etc. depending on your region
+            # 5. Fetch Hourly Data (More reliable than Daily for <48h)
             date_str = target_date.strftime('%Y-%m-%d')
-            api_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,precipitation_sum&timezone=auto&start_date={date_str}&end_date={date_str}&models=best_match,hrrr,icon_seamless,gem_seamless,meteofrance_seamless"
+            api_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,precipitation&timezone=auto&start_date={date_str}&end_date={date_str}&models=best_match,hrrr,icon_seamless,gem_seamless"
             
             response = requests.get(api_url).json()
-            daily = response.get('daily', {})
+            hourly = response.get('hourly', {})
 
-            # 6. Extracting Model Runs
-            temp_keys = [k for k in daily.keys() if 'temperature_2m_max' in k]
-            rain_keys = [k for k in daily.keys() if 'precipitation_sum' in k]
+            # 6. Extracting "Highs" from the Hourly Data
+            temp_keys = [k for k in hourly.keys() if 'temperature_2m' in k]
+            rain_keys = [k for k in hourly.keys() if 'precipitation' in k]
             
-            temps_c = [daily[k][0] for k in temp_keys if daily[k][0] is not None]
-            rains = [daily[k][0] for k in rain_keys if daily[k][0] is not None]
+            # For each model, find the Max temp of the day and the Sum of rain
+            temps_c = [max(hourly[k]) for k in temp_keys if hourly[k] and any(x is not None for x in hourly[k])]
+            rains = [sum(filter(None, hourly[k])) for k in rain_keys if hourly[k]]
 
             if temps_c:
                 # 7. Unit Conversion
@@ -63,26 +63,25 @@ if st.button("Scan Models"):
 
                 # 9. Visual Display
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Ensemble Avg", f"{avg_temp:.1f}{label}")
+                m1.metric("Ensemble Avg High", f"{avg_temp:.1f}{label}")
                 
-                # Confidence Logic: Tight grouping = High agreement
-                conf_text = "High ✅" if std_dev < 1.2 else "Moderate ⚠️" if std_dev < 2.5 else "Low 🚩"
+                conf_text = "High ✅" if std_dev < 1.5 else "Moderate ⚠️" if std_dev < 3.0 else "Low 🚩"
                 m2.metric("Confidence", conf_text)
                 m3.metric("Rain Risk", f"{rain_probability:.0f}%")
 
                 # 10. Model Comparison Data
                 df = pd.DataFrame({
-                    "Model Source": [k.replace('temperature_2m_max_', '').upper() for k in temp_keys],
-                    f"Temp ({label})": temps
+                    "Model Source": [k.replace('temperature_2m_', '').upper() for k in temp_keys if 'temperature_2m_' in k or k == 'temperature_2m'],
+                    f"Max Temp ({label})": temps
                 })
                 
-                st.subheader(f"Model Comparison for {date_str}")
+                st.subheader(f"Model High Temperature Comparison")
                 st.bar_chart(df.set_index("Model Source"))
                 
                 with st.expander("Show Raw Model Values"):
                     st.table(df)
             else:
-                st.warning("No data found for this date. Regional models update every 1–6 hours; try again in a few minutes!")
+                st.warning("Data not yet available for this specific hour window. Try a date slightly further out!")
 
     except Exception as e:
-        st.error(f"An unexpected technical error occurred: {e}")
+        st.error(f"Technical Error: {e}")
