@@ -1,5 +1,5 @@
 streamlit
 pandas
 requests
-meteostat
+meteostat==1.6.3
 numpy
