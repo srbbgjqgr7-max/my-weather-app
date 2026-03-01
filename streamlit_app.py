@@ -5,23 +5,23 @@ import numpy as np
 from datetime import datetime
 
 # 1. Page Configuration
-st.set_page_config(page_title="Weather Ensemble Scanner", page_icon="🌤️")
-st.title("📊 30-Model Weather Ensemble")
+st.set_page_config(page_title="High-Res Weather Scanner", page_icon="⛈️")
+st.title("🎯 High-Accuracy Weather Ensemble")
+st.markdown("Scanning high-resolution regional models for the next 48 hours.")
 
 # 2. Sidebar Settings
 with st.sidebar:
     st.header("Settings")
     unit = st.radio("Temperature Unit", ["Celsius (°C)", "Fahrenheit (°F)"])
-    st.info("Rain Risk: % of 30 models predicting >0.1mm of precip.")
+    st.info("Rain Risk is the % of models predicting >0.1mm of precip.")
 
 # 3. User Inputs
 location_input = st.text_input("Enter Station or City (e.g., KLGA, London, Tokyo)", "KLGA")
 target_date = st.date_input("Select Forecast Date", datetime.now())
 
-# 4. The Action Button
 if st.button("Scan Models"):
     try:
-        # SEARCH LOGIC: Convert name to Lat/Lon
+        # 4. Geocoding
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location_input}&count=1&language=en&format=json"
         geo_res = requests.get(geo_url).json()
 
@@ -30,23 +30,26 @@ if st.button("Scan Models"):
         else:
             location_data = geo_res['results'][0]
             lat, lon = location_data['latitude'], location_data['longitude']
-            st.success(f"Scanning 30 Models for: {location_data['name']}")
+            st.success(f"Scanning High-Res Models for: {location_data['name']}")
 
-            # 5. Fetch Ensemble Members (Temp + Rain)
-            # We use the specific start/end date format to ensure we hit the model window
+            # 5. Fetch High-Resolution Models (Best for <48 Hours)
+            # We are using 'best_match' which combines HRRR, ICON-D2, and GFS
             date_str = target_date.strftime('%Y-%m-%d')
-            api_url = f"https://ensemble-api.open-meteo.com/v1/ensemble?latitude={lat}&longitude={lon}&models=gefs_seamless&daily=temperature_2m_max,precipitation_sum&timezone=auto&start_date={date_str}&end_date={date_str}"
+            api_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,precipitation_sum&timezone=auto&start_date={date_str}&end_date={date_str}&models=best_match,hrrr,icon_seamless,gem_seamless,meteofrance_seamless"
             
             response = requests.get(api_url).json()
             daily = response.get('daily', {})
 
-            # 6. Data Extraction with "None" Check
-            # Filter out any 'None' values to prevent math errors
-            temps_c = [v[0] for k, v in daily.items() if 'temperature_2m_max_member' in k and v[0] is not None]
-            rains = [v[0] for k, v in daily.items() if 'precipitation_sum_member' in k and v[0] is not None]
+            # 6. Extracting specific models for our "Ensemble"
+            # We look for all keys that contain 'temperature_2m_max'
+            temp_keys = [k for k in daily.keys() if 'temperature_2m_max' in k]
+            rain_keys = [k for k in daily.keys() if 'precipitation_sum' in k]
+            
+            temps_c = [daily[k][0] for k in temp_keys if daily[k][0] is not None]
+            rains = [daily[k][0] for k in rain_keys if daily[k][0] is not None]
 
-            if temps_c and len(temps_c) > 0:
-                # 7. Unit Conversion for Temp
+            if temps_c:
+                # 7. Unit Conversion
                 if unit == "Fahrenheit (°F)":
                     temps = [(t * 9/5) + 32 for t in temps_c]
                     label = "°F"
@@ -54,40 +57,34 @@ if st.button("Scan Models"):
                     temps = temps_c
                     label = "°C"
 
-                # 8. Rain Risk Calculation
+                # 8. Rain Risk & Math
                 rainy_models = sum(1 for r in rains if r > 0.1)
                 rain_probability = (rainy_models / len(rains)) * 100
-
-                # 9. Math & Analytics
                 avg_temp = np.mean(temps)
                 std_dev = np.std(temps)
 
-                # 10. Visual Display
+                # 9. Visual Display
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Avg High", f"{avg_temp:.1f}{label}")
+                m1.metric("Ensemble Avg", f"{avg_temp:.1f}{label}")
                 
                 # Confidence Calculation
-                if std_dev < 1.5:
-                    conf_text = "High ✅"
-                elif std_dev < 3.5:
-                    conf_text = "Moderate ⚠️"
-                else:
-                    conf_text = "Low 🚩"
+                conf_text = "High ✅" if std_dev < 1.2 else "Moderate ⚠️" if std_dev < 2.5 else "Low 🚩"
                 m2.metric("Confidence", conf_text)
                 m3.metric("Rain Risk", f"{rain_probability:.0f}%")
 
-                st.subheader(f"Temperature Spread ({label})")
+                # 10. Data Visualization
                 df = pd.DataFrame({
-                    "Model Member": [f"Run {i+1}" for i in range(len(temps))],
-                    f"Temp ({label})": temps,
-                    "Rain (mm)": rains
+                    "Model Source": [k.replace('temperature_2m_max_', '').upper() for k in temp_keys],
+                    f"High Temp ({label})": temps
                 })
-                st.line_chart(df.set_index("Model Member")[f"Temp ({label})"])
                 
-                with st.expander("Show All 30 Model Values"):
+                st.subheader(f"Model Comparison ({label})")
+                st.bar_chart(df.set_index("Model Source"))
+                
+                with st.expander("Show Raw Model Comparison"):
                     st.table(df)
             else:
-                st.warning("No model data available for today yet. Try a date 1-14 days in the future!")
+                st.warning("No high-res data available for this specific date. Try tomorrow!")
 
     except Exception as e:
         st.error(f"Technical Error: {e}")
