@@ -34,7 +34,8 @@ if st.button("Scan Models"):
             st.success(f"Scanning 30 Models for: {location_data['name']}, {location_data.get('country', '')}")
 
             # 5. Fetch Ensemble Members (Temp + Rain)
-            api_url = f"https://ensemble-api.open-meteo.com/v1/ensemble?latitude={lat}&longitude={lon}&models=gefs_seamless&daily=temperature_2m_max,precipitation_sum&start_date={target_date}&end_date={target_date}&timezone=auto"
+api_url = f"https://ensemble-api.open-meteo.com/v1/ensemble?latitude={lat}&longitude={lon}&models=gefs_seamless&daily=temperature_2m_max,precipitation_sum&timezone=auto&start_date={target_date}&end_date={target_date}"
+
             
             response = requests.get(api_url).json()
             daily_data = response.get('daily', {})
