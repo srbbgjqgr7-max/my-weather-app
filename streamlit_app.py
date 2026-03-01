@@ -5,9 +5,9 @@ import numpy as np
 from datetime import datetime
 
 # 1. Page Configuration
-st.set_page_config(page_title="High-Res Weather Scanner", page_icon="⛈️")
+st.set_page_config(page_title="High-Res Weather Ensemble", page_icon="🎯")
 st.title("🎯 High-Accuracy Weather Ensemble")
-st.markdown("Scanning high-resolution regional models for the next 48 hours.")
+st.markdown("Prioritizing high-resolution regional models for the next 48 hours.")
 
 # 2. Sidebar Settings
 with st.sidebar:
@@ -21,7 +21,7 @@ target_date = st.date_input("Select Forecast Date", datetime.now())
 
 if st.button("Scan Models"):
     try:
-        # 4. Geocoding
+        # 4. Geocoding (Convert name to Lat/Lon)
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location_input}&count=1&language=en&format=json"
         geo_res = requests.get(geo_url).json()
 
@@ -32,16 +32,15 @@ if st.button("Scan Models"):
             lat, lon = location_data['latitude'], location_data['longitude']
             st.success(f"Scanning High-Res Models for: {location_data['name']}")
 
-            # 5. Fetch High-Resolution Models (Best for <48 Hours)
-            # We are using 'best_match' which combines HRRR, ICON-D2, and GFS
+            # 5. Fetch High-Res Forecast Models
+            # 'best_match' uses HRRR, ICON-D2, AROME, etc. depending on your region
             date_str = target_date.strftime('%Y-%m-%d')
             api_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,precipitation_sum&timezone=auto&start_date={date_str}&end_date={date_str}&models=best_match,hrrr,icon_seamless,gem_seamless,meteofrance_seamless"
             
             response = requests.get(api_url).json()
             daily = response.get('daily', {})
 
-            # 6. Extracting specific models for our "Ensemble"
-            # We look for all keys that contain 'temperature_2m_max'
+            # 6. Extracting Model Runs
             temp_keys = [k for k in daily.keys() if 'temperature_2m_max' in k]
             rain_keys = [k for k in daily.keys() if 'precipitation_sum' in k]
             
@@ -57,34 +56,33 @@ if st.button("Scan Models"):
                     temps = temps_c
                     label = "°C"
 
-                # 8. Rain Risk & Math
+                # 8. Stats & Rain Risk
                 rainy_models = sum(1 for r in rains if r > 0.1)
                 rain_probability = (rainy_models / len(rains)) * 100
-                avg_temp = np.mean(temps)
-                std_dev = np.std(temps)
+                avg_temp, std_dev = np.mean(temps), np.std(temps)
 
                 # 9. Visual Display
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Ensemble Avg", f"{avg_temp:.1f}{label}")
                 
-                # Confidence Calculation
+                # Confidence Logic: Tight grouping = High agreement
                 conf_text = "High ✅" if std_dev < 1.2 else "Moderate ⚠️" if std_dev < 2.5 else "Low 🚩"
                 m2.metric("Confidence", conf_text)
                 m3.metric("Rain Risk", f"{rain_probability:.0f}%")
 
-                # 10. Data Visualization
+                # 10. Model Comparison Data
                 df = pd.DataFrame({
                     "Model Source": [k.replace('temperature_2m_max_', '').upper() for k in temp_keys],
-                    f"High Temp ({label})": temps
+                    f"Temp ({label})": temps
                 })
                 
-                st.subheader(f"Model Comparison ({label})")
+                st.subheader(f"Model Comparison for {date_str}")
                 st.bar_chart(df.set_index("Model Source"))
                 
-                with st.expander("Show Raw Model Comparison"):
+                with st.expander("Show Raw Model Values"):
                     st.table(df)
             else:
-                st.warning("No high-res data available for this specific date. Try tomorrow!")
+                st.warning("No data found for this date. Regional models update every 1–6 hours; try again in a few minutes!")
 
     except Exception as e:
-        st.error(f"Technical Error: {e}")
+        st.error(f"An unexpected technical error occurred: {e}")
